@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>週報產生器</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root {
     --bg: #0f0f13;
@@ -64,6 +63,8 @@
   }
   .color-row { display: grid; grid-template-columns: 1fr 34px; gap: 5px; align-items: center; }
   .field-label { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  input[type=range]{ width:100%; accent-color: var(--accent); height: 4px; cursor: pointer; }
+  input[type=checkbox]{ accent-color: var(--accent); width:14px; height:14px; cursor:pointer; }
 
   .seg-group { display: flex; gap: 3px; }
   .seg-btn {
@@ -128,6 +129,7 @@
     font-size: 13px; transition: all 0.12s;
   }
   .btn-del:hover { border-color: #f87171; color: #f87171; }
+  .btn {
     background: var(--surface2); border: 1px solid var(--border);
     border-radius: 7px; color: var(--text); font-family: var(--sys);
     font-size: 12px; padding: 7px 12px; cursor: pointer; transition: all 0.12s; font-weight: 500;
@@ -254,6 +256,7 @@
         ＋ 點擊上傳背景圖片
       </div>
       <input type="file" id="file-input" accept="image/*" style="display:none" onchange="loadImg(event)">
+      <button class="btn" id="crop-btn" style="display:none;width:100%;margin-top:5px;" onclick="openCrop()">✂ 裁切背景圖</button>
     </div>
 
     <div id="full-align-section">
@@ -275,6 +278,13 @@
     <div>
       <div class="field-label">底色（½圖＋底色 / 純底色 模式）</div>
       <input type="color" id="bg-color" value="#1a1a3a" oninput="st.bgColor=this.value;render()" style="width:100%;height:32px;">
+    </div>
+
+    <div id="bg-opacity-section" style="display:none">
+      <div class="field-label">底色透明度（<span id="bgo-val">100</span>%，可疊在背景圖上）</div>
+      <input type="range" id="bg-opacity" min="0" max="100" value="100"
+             oninput="st.bgColorOpacity=+this.value;document.getElementById('bgo-val').textContent=this.value;render()">
+      <div class="hint">純底色模式可上傳背景圖，調低透明度即可讓底色半透明疊在圖片上。</div>
     </div>
 
     <div id="row-bg-section">
@@ -306,7 +316,27 @@
     </div>
   </div>
 
-  <!-- 日期格式 -->
+  <!-- 周表位置 -->
+  <div class="section">
+    <div class="sec-title">周表位置</div>
+    <div class="hint">調整整個周表內容區的位置與寬度（所有模式）</div>
+    <div>
+      <div class="field-label">水平 X（<span id="lx-val">0</span>%）</div>
+      <input type="range" id="list-x" min="-40" max="40" value="0"
+             oninput="st.listX=+this.value;document.getElementById('lx-val').textContent=this.value;render()">
+    </div>
+    <div>
+      <div class="field-label">垂直 Y（<span id="ly-val">0</span>%）</div>
+      <input type="range" id="list-y" min="-40" max="40" value="0"
+             oninput="st.listY=+this.value;document.getElementById('ly-val').textContent=this.value;render()">
+    </div>
+    <div>
+      <div class="field-label">寬度調整（<span id="lw-val">0</span>%）</div>
+      <input type="range" id="list-w" min="-50" max="50" value="0"
+             oninput="st.listW=+this.value;document.getElementById('lw-val').textContent=this.value;render()">
+    </div>
+  </div>
+
   <div class="section">
     <div class="sec-title">日期格式</div>
     <div class="seg-group">
@@ -355,6 +385,24 @@
   </div>
 </div>
 
+<!-- CROP MODAL -->
+<div id="crop-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.78);align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px;max-width:92vw;max-height:92vh;">
+    <div style="font-size:12px;font-weight:700;color:var(--text);">裁切背景圖 — 拖曳方框移動，拖右下角縮放</div>
+    <div id="crop-stage" style="position:relative;overflow:hidden;background:#000;align-self:center;touch-action:none;">
+      <img id="crop-img" style="display:block;user-select:none;-webkit-user-drag:none;pointer-events:none;">
+      <div id="crop-box" style="position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.55);cursor:move;touch-action:none;">
+        <div id="crop-handle" style="position:absolute;right:-8px;bottom:-8px;width:16px;height:16px;background:#fff;border-radius:3px;cursor:nwse-resize;touch-action:none;"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="resetCrop()">重設（全圖）</button>
+      <button class="btn" onclick="closeCrop()">取消</button>
+      <button class="btn-export" style="width:auto;padding:8px 18px;" onclick="applyCrop()">套用</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // 預覽用尺寸（小，流暢）
 const SIZES = { '169':{w:800,h:450}, '11':{w:560,h:560}, '45':{w:480,h:600} };
@@ -373,6 +421,9 @@ const st = {
   size:'11', mode:'full', side:'left', fullAlign:'left',
   bgColor:'#1a1a3a', rowBgColor:'#ffffff', rowBgOpacity:'0.20', rowTextColor:'#ffffff',
   fmt:'dot', imageData:null, imageW:0, imageH:0,
+  listX:0, listY:0, listW:0,
+  bgColorOpacity:100,
+  bgCrop:null,
   rows: Array.from({length:7}, (_,i) => ({
     date: FMTS.dot[i], event:'', visible:true
   }))
@@ -384,7 +435,8 @@ function setMode(v){
   id('half-side-section').style.display  = v==='half'?'':'none';
   id('full-align-section').style.display = v==='full'?'':'none';
   id('row-bg-section').style.display     = v==='full'?'':'none';
-  id('img-section').style.display        = v==='solid'?'none':'';
+  id('img-section').style.display        = '';
+  id('bg-opacity-section').style.display = v==='solid'?'':'none';
   render();
 }
 function setSide(v){ st.side=v; tog('[data-side]','side',v); render(); }
@@ -404,15 +456,106 @@ function loadImg(e){
   const r=new FileReader();
   r.onload=ev=>{
     st.imageData=ev.target.result;
+    st.bgCrop=null;
     // 記錄原圖尺寸
     const img=new Image();
     img.onload=()=>{ st.imageW=img.naturalWidth; st.imageH=img.naturalHeight; render(); };
     img.src=ev.target.result;
     const u=id('upload-area');
     u.textContent='✓ '+f.name; u.classList.add('has');
+    id('crop-btn').style.display='';
   };
   r.readAsDataURL(f);
 }
+
+// ── 底色（可半透明，疊在背景圖上）──
+function bgColorRgba(){
+  const a = (st.bgColorOpacity==null?100:st.bgColorOpacity)/100;
+  return `rgba(${hexRgb(st.bgColor)},${a})`;
+}
+
+// ── 背景裁切 ──
+function fitCropToAspect(crop, destAspect){
+  let {sx,sy,sw,sh}=crop;
+  const ca=sw/sh;
+  let nsw=sw, nsh=sh;
+  if(ca>destAspect){ nsw=sh*destAspect; } else { nsh=sw/destAspect; }
+  const cx=sx+sw/2, cy=sy+sh/2;
+  return { sx:cx-nsw/2, sy:cy-nsh/2, sw:nsw, sh:nsh };
+}
+function bgCss(dw,dh){
+  if(!st.imageData) return null;
+  if(!st.bgCrop) return `url('${st.imageData}') center/cover no-repeat`;
+  const src=fitCropToAspect(st.bgCrop, dw/dh);
+  const scale=dw/src.sw;
+  const bw=st.imageW*scale, bh=st.imageH*scale;
+  const px=-src.sx*scale, py=-src.sy*scale;
+  return `url('${st.imageData}') ${px}px ${py}px / ${bw}px ${bh}px no-repeat`;
+}
+function bgDestAspect(){
+  const {w,h}=SIZES[st.size];
+  if(st.mode==='half') return (w*0.40)/h;
+  return w/h;
+}
+let cropState=null;
+function openCrop(){
+  if(!st.imageData) return;
+  id('crop-modal').style.display='flex';
+  const imgEl=id('crop-img'); imgEl.src=st.imageData;
+  const maxW=Math.min(window.innerWidth*0.8,700);
+  const maxH=window.innerHeight*0.6;
+  const dispScale=Math.min(maxW/st.imageW, maxH/st.imageH, 1);
+  const dW=st.imageW*dispScale, dH=st.imageH*dispScale;
+  imgEl.style.width=dW+'px'; imgEl.style.height=dH+'px';
+  const stage=id('crop-stage'); stage.style.width=dW+'px'; stage.style.height=dH+'px';
+  cropState={ dispScale, dW, dH, aspect:bgDestAspect(), box:null };
+  initCropBox();
+}
+function initCropBox(){
+  const cs=cropState; let bx,by,bw,bh;
+  if(st.bgCrop){
+    bw=st.bgCrop.sw*cs.dispScale; bh=st.bgCrop.sh*cs.dispScale;
+    bx=st.bgCrop.sx*cs.dispScale; by=st.bgCrop.sy*cs.dispScale;
+  } else {
+    if(cs.dW/cs.dH > cs.aspect){ bh=cs.dH; bw=bh*cs.aspect; }
+    else { bw=cs.dW; bh=bw/cs.aspect; }
+    bx=(cs.dW-bw)/2; by=(cs.dH-bh)/2;
+  }
+  setCropBox(bx,by,bw,bh);
+}
+function setCropBox(x,y,w,h){
+  const cs=cropState;
+  w=Math.max(30,Math.min(w,cs.dW)); h=w/cs.aspect;
+  if(h>cs.dH){ h=cs.dH; w=h*cs.aspect; }
+  x=Math.max(0,Math.min(x,cs.dW-w)); y=Math.max(0,Math.min(y,cs.dH-h));
+  cs.box={x,y,w,h};
+  const b=id('crop-box');
+  b.style.left=x+'px'; b.style.top=y+'px'; b.style.width=w+'px'; b.style.height=h+'px';
+}
+function initCropEvents(){
+  const box=id('crop-box'), handle=id('crop-handle'), stage=id('crop-stage');
+  let mode=null, sx=0, sy=0, orig=null;
+  function pt(e){ const r=stage.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+  function move(e){
+    if(!mode) return;
+    const p=pt(e), ddx=p.x-sx, ddy=p.y-sy;
+    if(mode==='move') setCropBox(orig.x+ddx, orig.y+ddy, orig.w, orig.h);
+    else setCropBox(orig.x, orig.y, orig.w+ddx, 0);
+  }
+  function up(){ mode=null; window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); }
+  function down(e,m){ mode=m; const p=pt(e); sx=p.x; sy=p.y; orig={...cropState.box};
+    e.preventDefault(); e.stopPropagation();
+    window.addEventListener('pointermove',move); window.addEventListener('pointerup',up); }
+  box.addEventListener('pointerdown', e=>down(e,'move'));
+  handle.addEventListener('pointerdown', e=>down(e,'resize'));
+}
+function applyCrop(){
+  const cs=cropState, b=cs.box;
+  st.bgCrop={ sx:b.x/cs.dispScale, sy:b.y/cs.dispScale, sw:b.w/cs.dispScale, sh:b.h/cs.dispScale };
+  closeCrop(); render();
+}
+function resetCrop(){ st.bgCrop=null; if(cropState) initCropBox(); }
+function closeCrop(){ id('crop-modal').style.display='none'; }
 
 function renderRows(){
   const c=id('rows-container'); c.innerHTML='';
@@ -482,25 +625,20 @@ function render(){
       ${st.accountText?`<div class="scard-account" style="font-size:${fA}px;color:${st.accountColor}">${esc(st.accountText)}</div>`:''}
     </div>`;
 
+  // 位置 / 寬度偏移
+  const dx = Math.round(w*st.listX/100);
+  const dy = Math.round(h*st.listY/100);
+  const wf = 1 + st.listW/100;
+
   let html='';
 
   if(st.mode==='full'){
-    const bg=st.imageData?`url('${st.imageData}') center/cover no-repeat`:`${st.bgColor}`;
-    // 靠左：左5%邊距，右55%留空 → 內容佔40%
-    // 靠右：左55%留空，右5%邊距 → 內容佔40%
-    // 置中：左右各20%邊距 → 內容佔60%（視覺居中，比左右稍寬）
-    const nearPad = Math.round(w * 0.05);
-    const farPad  = Math.round(w * 0.55);
-    const ctrPad  = Math.round(w * 0.20);
-    let layerStyle = '';
-    if(st.fullAlign==='left'){
-      layerStyle = `padding:6% ${farPad}px 6% ${nearPad}px;`;
-    } else if(st.fullAlign==='right'){
-      layerStyle = `padding:6% ${nearPad}px 6% ${farPad}px;`;
-    } else {
-      layerStyle = `padding:6% ${ctrPad}px;align-items:center;text-align:center;`;
-    }
-    const rowPadV = Math.max(6, Math.round(h * 0.012)); // 約6~8px
+    const bg = bgCss(w,h) || st.bgColor;
+    const nearPad = Math.round(w*0.05);
+    const baseCW  = (st.fullAlign==='center' ? w*0.60 : w*0.40);
+    const cw = Math.round(baseCW*wf);
+    const align = st.fullAlign==='center' ? 'center' : (st.fullAlign==='right' ? 'flex-end' : 'flex-start');
+    const rowPadV = Math.max(6, Math.round(h*0.012));
     const rows=vis.map(r=>`
       <div class="scard-row" style="background:${rowBg};padding:${rowPadV}px 5%;gap:2%;margin-bottom:${rGap}px;width:100%;justify-content:flex-start;align-items:center">
         <div class="scard-date" style="font-size:${fD}px;color:${st.rowTextColor||'#fff'};flex-shrink:0;line-height:1.2">${esc(r.date)}</div>
@@ -509,16 +647,21 @@ function render(){
     html=`
       <div class="scard mode-full" style="background:${bg}">
         <div class="scard-wm" style="font-size:${fW}px">SCHEDULE</div>
-        <div class="content-layer" style="${layerStyle}">
-          ${hdr}${rows}
+        <div class="content-layer" style="align-items:${align};padding:6% ${nearPad}px;transform:translate(${dx}px,${dy}px)">
+          <div class="list-block" style="position:relative;isolation:isolate;width:${cw}px;display:flex;flex-direction:column;text-align:${st.fullAlign==='center'?'center':'left'}">
+            ${hdr}${rows}
+          </div>
         </div>
       </div>`;
 
   } else if(st.mode==='half'){
     const iW=Math.round(w*0.40);
-    const iBg=st.imageData?`url('${st.imageData}') center/cover no-repeat`:`linear-gradient(135deg,#555,#222)`;
+    const iBg = bgCss(iW,h) || `linear-gradient(135deg,#555,#222)`;
     const fd=st.side==='right'?'row-reverse':'row';
-    const pd=`${Math.round(h*0.06)}px ${Math.round(w*0.05)}px`;
+    const padSide=Math.round(w*0.05);
+    const pd=`${Math.round(h*0.06)}px ${padSide}px`;
+    const baseCW=(w-iW)-2*padSide;
+    const cw=Math.round(baseCW*wf);
     const rows=vis.map(r=>`
       <div class="scard-row" style="padding:${Math.max(6,Math.round(h*0.012))}px 0;gap:2%;border-bottom:1px solid rgba(255,255,255,0.1);justify-content:flex-start;align-items:center">
         <div class="scard-date" style="font-size:${fD}px;color:${st.rowTextColor||'#fff'};flex-shrink:0;line-height:1.2">${esc(r.date)}</div>
@@ -528,22 +671,30 @@ function render(){
       <div class="scard mode-half" style="flex-direction:${fd}">
         <div class="card-img" style="width:${iW}px;background:${iBg}"></div>
         <div class="card-color" style="background:${st.bgColor};padding:${pd}">
-          ${hdr}<div style="margin-top:${Math.round(h*0.02)}px">${rows}</div>
+          <div class="list-block" style="position:relative;isolation:isolate;width:${cw}px;max-width:100%;transform:translate(${dx}px,${dy}px)">
+            ${hdr}<div style="margin-top:${Math.round(h*0.02)}px">${rows}</div>
+          </div>
         </div>
       </div>`;
 
   } else {
+    const pd0=Math.round(Math.min(w,h)*0.08);
     const pd=`${Math.round(h*0.08)}px ${Math.round(w*0.08)}px`;
+    const baseCW=w-2*pd0;
+    const cw=Math.round(baseCW*wf);
     const rows=vis.map(r=>`
       <div class="scard-row" style="padding:${Math.max(6,Math.round(h*0.012))}px 0;gap:2%;border-bottom:1px solid rgba(255,255,255,0.1);justify-content:flex-start;align-items:center">
         <div class="scard-date" style="font-size:${fD}px;color:${st.rowTextColor||'#fff'};flex-shrink:0;line-height:1.2">${esc(r.date)}</div>
         <div class="scard-evt"  style="font-size:${fE}px;color:${st.rowTextColor||'#fff'};flex-shrink:0;line-height:1.2">${esc(r.event)}</div>
       </div>`).join('');
+    const sbg = bgCss(w,h) || st.bgColor;
     html=`
-      <div class="scard mode-solid">
+      <div class="scard mode-solid" style="background:${sbg}">
         <div class="scard-wm" style="font-size:${fW}px">SCHEDULE</div>
-        <div class="card-color" style="background:${st.bgColor};padding:${pd}">
-          ${hdr}<div style="margin-top:${Math.round(h*0.025)}px">${rows}</div>
+        <div class="card-color" style="background:${bgColorRgba()};padding:${pd}">
+          <div class="list-block" style="position:relative;isolation:isolate;width:${cw}px;max-width:100%;transform:translate(${dx}px,${dy}px)">
+            ${hdr}<div style="margin-top:${Math.round(h*0.025)}px">${rows}</div>
+          </div>
         </div>
       </div>`;
   }
@@ -571,40 +722,64 @@ async function exportPNG(){
   const sysFonts = "-apple-system,'Helvetica Neue',Arial,'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif";
 
   // ── 繪製背景 ──
+  function fillColorRgba(){
+    const a=(st.bgColorOpacity==null?100:st.bgColorOpacity)/100;
+    const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(st.bgColor);
+    return m?`rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${a})`:st.bgColor;
+  }
   const drawBg = () => new Promise(res => {
-    if(st.mode === 'solid' || !st.imageData){
+    function makeDrawInto(img){
+      return function(destX, destY, destW, destH){
+        let sx,sy,sw,sh;
+        if(st.bgCrop){
+          const s=fitCropToAspect(st.bgCrop, destW/destH);
+          sx=s.sx; sy=s.sy; sw=s.sw; sh=s.sh;
+        } else {
+          const ia=img.width/img.height, da=destW/destH;
+          sw=img.width; sh=img.height;
+          if(ia>da){ sw=img.height*da; } else { sh=img.width/da; }
+          sx=(img.width-sw)/2; sy=(img.height-sh)/2;
+        }
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(destX, destY, destW, destH);
+        ctx.clip();
+        ctx.drawImage(img, sx, sy, sw, sh, destX, destY, destW, destH);
+        ctx.restore();
+      };
+    }
+
+    if(!st.imageData){
+      // 無背景圖：直接填底色
       ctx.fillStyle = st.bgColor;
       ctx.fillRect(0,0,w,h);
       res();
+    } else if(st.mode === 'solid'){
+      // 純底色：背景圖滿版 + 半透明底色疊加
+      const img = new Image();
+      img.onload = () => {
+        makeDrawInto(img)(0,0,w,h);
+        ctx.fillStyle = fillColorRgba();
+        ctx.fillRect(0,0,w,h);
+        res();
+      };
+      img.onerror = () => { ctx.fillStyle=st.bgColor; ctx.fillRect(0,0,w,h); res(); };
+      img.src = st.imageData;
     } else {
       const img = new Image();
       img.onload = () => {
-        // cover 填滿：等比縮放後置中裁切
-        function drawCover(destX, destY, destW, destH){
-          const scale = Math.max(destW/img.width, destH/img.height);
-          const sw = img.width * scale;
-          const sh = img.height * scale;
-          const dx = destX + (destW - sw) / 2;
-          const dy = destY + (destH - sh) / 2;
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(destX, destY, destW, destH);
-          ctx.clip();
-          ctx.drawImage(img, dx, dy, sw, sh);
-          ctx.restore();
-        }
-
+        const drawInto = makeDrawInto(img);
         if(st.mode === 'full'){
-          drawCover(0, 0, w, h);
+          drawInto(0, 0, w, h);
         } else {
           // half
           const iW = Math.round(w * 0.40);
           if(st.side === 'right'){
             ctx.fillStyle = st.bgColor;
             ctx.fillRect(0, 0, w - iW, h);
-            drawCover(w - iW, 0, iW, h);
+            drawInto(w - iW, 0, iW, h);
           } else {
-            drawCover(0, 0, iW, h);
+            drawInto(0, 0, iW, h);
             ctx.fillStyle = st.bgColor;
             ctx.fillRect(iW, 0, w - iW, h);
           }
@@ -618,48 +793,48 @@ async function exportPNG(){
 
   await drawBg();
 
-  // ── 計算內容區域 ──
+  // ── 計算內容區域（與 render 一致：位置/寬度偏移）──
   let contentX, contentW, contentPadH;
+  const wf = 1 + st.listW/100;
+  const offX = Math.round(w*st.listX/100);
+  const offY = Math.round(h*st.listY/100);
   const nearPad = Math.round(w*0.05);
-  const farPad  = Math.round(w*0.55);
-  const ctrPad  = Math.round(w*0.20);
 
   if(st.mode==='full'){
-    if(st.fullAlign==='left'){
-      contentX=nearPad; contentW=w-nearPad-farPad;
-    } else if(st.fullAlign==='right'){
-      contentX=farPad; contentW=w-nearPad-farPad;
-    } else {
-      contentX=ctrPad; contentW=w-ctrPad*2;
-    }
+    const baseCW = (st.fullAlign==='center' ? w*0.60 : w*0.40);
+    contentW = Math.round(baseCW*wf);
+    if(st.fullAlign==='left')      contentX = nearPad;
+    else if(st.fullAlign==='right') contentX = w - nearPad - contentW;
+    else                            contentX = (w - contentW)/2;
     contentPadH = Math.round(h*0.06);
   } else if(st.mode==='half'){
     const iW=Math.round(w*0.40);
     const padH=Math.round(h*0.06), padSide=Math.round(w*0.05);
-    if(st.side==='right'){
-      contentX=padSide; contentW=w-iW-padSide*2;
-    } else {
-      contentX=iW+padSide; contentW=w-iW-padSide*2;
-    }
+    const baseCW=(w-iW)-padSide*2;
+    contentW=Math.round(baseCW*wf);
+    contentX = (st.side==='right' ? padSide : iW+padSide);
     contentPadH=padH;
   } else {
     const pd=Math.round(Math.min(w,h)*0.08);
-    contentX=pd; contentW=w-pd*2; contentPadH=pd;
+    const baseCW=w-pd*2;
+    contentW=Math.round(baseCW*wf);
+    contentX=pd; contentPadH=pd;
   }
+  contentX += offX;
 
   // ── 標題 & 帳號 ──
   const vis = st.rows.filter(r=>r.visible);
   const hdrH = fT*1.3 + (st.accountText ? fA*1.5 : 0);
   const rowH = fD*1.2 + rowPadV*2;
   const totalH = hdrH + Math.round(h*0.03) + vis.length*(rowH+rGap);
-  const startY = (h - totalH) / 2;
+  const startY = (h - totalH) / 2 + offY;
 
   // 標題
   ctx.font = `900 ${fT}px ${sysFonts}`;
   ctx.fillStyle = st.titleColor;
   ctx.textBaseline = 'top';
   ctx.textAlign = st.mode==='full' && st.fullAlign==='center' ? 'center' : 'left';
-  const titleX = st.mode==='full' && st.fullAlign==='center' ? w/2 : contentX;
+  const titleX = st.mode==='full' && st.fullAlign==='center' ? contentX + contentW/2 : contentX;
   ctx.fillText(st.titleText, titleX, startY);
 
   // 帳號
@@ -735,6 +910,8 @@ function saveTpl(){
     size:st.size, mode:st.mode, side:st.side, fullAlign:st.fullAlign,
     bgColor:st.bgColor, rowBgColor:st.rowBgColor, rowBgOpacity:st.rowBgOpacity, rowTextColor:st.rowTextColor||'#ffffff',
     fmt:st.fmt,
+    listX:st.listX, listY:st.listY, listW:st.listW,
+    bgColorOpacity:st.bgColorOpacity,
     rows: st.rows.map(r=>({...r})),
     savedAt: Date.now()
   };
@@ -759,6 +936,8 @@ function loadTpl(idx){
     size:t.size, mode:t.mode, side:t.side, fullAlign:t.fullAlign||'left',
     bgColor:t.bgColor, rowBgColor:t.rowBgColor, rowBgOpacity:t.rowBgOpacity, rowTextColor:t.rowTextColor||'#ffffff',
     fmt:t.fmt,
+    listX:t.listX||0, listY:t.listY||0, listW:t.listW||0,
+    bgColorOpacity:(t.bgColorOpacity==null?100:t.bgColorOpacity),
     rows:t.rows.map(r=>({...r})),
     imageData: st.imageData // 保留當前已上傳的圖片
   });
@@ -855,6 +1034,12 @@ function syncUI(){
   id('bg-color').value     = st.bgColor;
   id('row-bg-color').value = st.rowBgColor;
   id('row-bg-opacity').value = st.rowBgOpacity;
+  // 位置 / 寬度
+  id('list-x').value=st.listX; document.getElementById('lx-val').textContent=st.listX;
+  id('list-y').value=st.listY; document.getElementById('ly-val').textContent=st.listY;
+  id('list-w').value=st.listW; document.getElementById('lw-val').textContent=st.listW;
+  // 底色透明度
+  id('bg-opacity').value=st.bgColorOpacity; document.getElementById('bgo-val').textContent=st.bgColorOpacity;
   // seg buttons
   tog('[data-size]','size',st.size);
   tog('[data-mode]','mode',st.mode);
@@ -865,11 +1050,15 @@ function syncUI(){
   id('half-side-section').style.display  = st.mode==='half'?'':'none';
   id('full-align-section').style.display = st.mode==='full'?'':'none';
   id('row-bg-section').style.display     = st.mode==='full'?'':'none';
-  id('img-section').style.display        = st.mode==='solid'?'none':'';
+  id('img-section').style.display        = '';
+  id('bg-opacity-section').style.display = st.mode==='solid'?'':'none';
+  // 還原已上傳圖片的上傳區狀態
+  if(st.imageData){ const u=id('upload-area'); u.classList.add('has'); id('crop-btn').style.display=''; }
 }
 
 renderRows();
 renderTplList();
+initCropEvents();
 render();
 </script>
 </body>
